@@ -13,11 +13,15 @@ const defConfig = {
   "mcast_group": "ff02::2:1001",
   "mcast_iface": "bat0",
   "port": "1001",
+<<<<<<< HEAD
   "site_code": undefined,
   "latitude": undefined,
   "longitude": undefined,
   "altitude": undefined,
   "contact": undefined
+=======
+  "site_code": undefined
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
 }
 
 function getNodeinfo() {
@@ -32,15 +36,22 @@ function getNodeinfo() {
       "fastd": {
         "enabled": isProcessRunning("fastd")
       },
+<<<<<<< HEAD
       "status-page":{
 				"api":1
 			}
+=======
+      "tunneldigger": {
+        "enabled": isProcessRunning("l2tp_broker")
+      }
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
     },
     "network": {
       "addresses": getV6AddrForInterface(getConfig("mcast_iface")),
       "mesh": getMeshAddresses(),
       "mac": getPrimaryMac()
     },
+<<<<<<< HEAD
     "location": {
       "latitude": getConfig("latitude"),
       "longitude": getConfig("longitude"),
@@ -49,6 +60,8 @@ function getNodeinfo() {
     "owner": {
       "contact": getConfig("contact")
     },
+=======
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
     "system": {
       "site_code": getConfig("site_code")
     },
@@ -188,7 +201,11 @@ var config = {}
 try {
   config = JSON.parse(fs.readFileSync("./config.json"))
 } catch (err) {
+<<<<<<< HEAD
   console.log("config file error: " + err)
+=======
+  console.log("no config file found")
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
 }
 
 function getConfig(opt) {
@@ -232,3 +249,7 @@ socket.bind(getConfig("port"), () => {
   myproc.setgid('nogroup')
   myproc.setuid('nobody')
 })
+<<<<<<< HEAD
+=======
+
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe

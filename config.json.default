@@ -3,10 +3,14 @@
   "mcast_group": "ff02::2:1001",
   "mcast_iface": "bat0",
   "port": "1001",
+<<<<<<< HEAD
   "site_code": null,
   "latitude": null,
   "longitude": null,
   "altitude": null,
   "contact": null
+=======
+  "site_code": undefined
+>>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
 }
 
