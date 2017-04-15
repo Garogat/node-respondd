@@ -16,6 +16,7 @@ const defConfig = {
   "site_code": undefined,
   "latitude": undefined,
   "longitude": undefined,
+  "altitude": undefined,
   "contact": undefined
 }
 
@@ -31,9 +32,9 @@ function getNodeinfo() {
       "fastd": {
         "enabled": isProcessRunning("fastd")
       },
-      "tunneldigger": {
-        "enabled": isProcessRunning("l2tp_broker")
-      }
+      "status-page":{
+				"api":1
+			}
     },
     "network": {
       "addresses": getV6AddrForInterface(getConfig("mcast_iface")),
@@ -42,7 +43,8 @@ function getNodeinfo() {
     },
     "location": {
       "latitude": getConfig("latitude"),
-      "longitude": getConfig("longitude")
+      "longitude": getConfig("longitude"),
+      "altitude": getConfig("altitude")
     },
     "owner": {
       "contact": getConfig("contact")
@@ -230,4 +232,3 @@ socket.bind(getConfig("port"), () => {
   myproc.setgid('nogroup')
   myproc.setuid('nobody')
 })
-
