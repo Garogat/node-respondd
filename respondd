@@ -13,15 +13,11 @@ const defConfig = {
   "mcast_group": "ff02::2:1001",
   "mcast_iface": "bat0",
   "port": "1001",
-<<<<<<< HEAD
   "site_code": undefined,
   "latitude": undefined,
   "longitude": undefined,
   "altitude": undefined,
   "contact": undefined
-=======
-  "site_code": undefined
->>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
 }
 
 function getNodeinfo() {
@@ -36,22 +32,15 @@ function getNodeinfo() {
       "fastd": {
         "enabled": isProcessRunning("fastd")
       },
-<<<<<<< HEAD
       "status-page":{
 				"api":1
 			}
-=======
-      "tunneldigger": {
-        "enabled": isProcessRunning("l2tp_broker")
-      }
->>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
     },
     "network": {
       "addresses": getV6AddrForInterface(getConfig("mcast_iface")),
       "mesh": getMeshAddresses(),
       "mac": getPrimaryMac()
     },
-<<<<<<< HEAD
     "location": {
       "latitude": getConfig("latitude"),
       "longitude": getConfig("longitude"),
@@ -60,8 +49,6 @@ function getNodeinfo() {
     "owner": {
       "contact": getConfig("contact")
     },
-=======
->>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
     "system": {
       "site_code": getConfig("site_code")
     },
@@ -85,9 +72,34 @@ function getStatistics() {
     "processes": {
       "running": parseInt(evalExec("ps ax | awk '{print $3}' | grep R | wc -l")),
       "total": parseInt(evalExec("ps ax | wc -l")) - 1,
-    }
+    },
+    "clients": getClients()
   }
 }
+
+function getClients() {
+  var lines = fs.readFileSync("/sys/kernel/debug/batman_adv/" + getConfig("bat_iface") + "/transtable_local").toString().trim()
+  var batadv_mac = getPrimaryMac()
+  var clients = {"total": 0, "wifi": 0}
+
+  if (lines) {
+    lines = lines.split("\n")
+    lines.shift()
+    lines.shift()
+
+    lines.forEach((line) => {
+      var mac = line.substring(3,20)
+      if (mac != batadv_mac)
+        if (!mac.startsWith('33:33:') && !mac.startsWith('01:00:5e:'))
+          clients["total"] += 1
+            if (line[26] == 'W')
+              clients["wifi"] += 1
+    })
+  }
+  console.log(clients)
+  return clients
+}
+
 
 function getNeighbours() {
   return {
@@ -201,16 +213,15 @@ var config = {}
 try {
   config = JSON.parse(fs.readFileSync("./config.json"))
 } catch (err) {
-<<<<<<< HEAD
   console.log("config file error: " + err)
-=======
-  console.log("no config file found")
->>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
 }
 
 function getConfig(opt) {
-  if (opt == "listen")
-    return getV6AddrForInterface(getConfig("mcast_iface")).filter((a) => a.startsWith("fe80:"))[0] + "%" + getConfig("mcast_iface")
+  if (opt == "listen"){
+    var v6address = getV6AddrForInterface(getConfig("mcast_iface"))
+    if (v6address == null) throw "no ipv6 address for mcast_iface found!"
+    return v6address.filter((a) => a.startsWith("fe80:"))[0] + "%" + getConfig("mcast_iface")
+  }
   if (opt in config) return config[opt]
   else return defConfig[opt]
 }
@@ -246,10 +257,6 @@ socket.on('listening', () => {
 
 socket.bind(getConfig("port"), () => {
   socket.addMembership(getConfig("mcast_group"), getConfig("listen"))
-  myproc.setgid('nogroup')
-  myproc.setuid('nobody')
+  //myproc.setgid('nogroup')
+  //myproc.setuid('nobody')
 })
-<<<<<<< HEAD
-=======
-
->>>>>>> 79ae64d297a0dba06251f2fc5988b978a207c0fe
