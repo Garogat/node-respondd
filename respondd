@@ -1,262 +1,288 @@
 #!/usr/bin/env node
 
-const dgram = require('dgram')
-const socket = dgram.createSocket('udp6')
-const fs = require('fs')
-const zlib = require('zlib')
-const os = require('os')
-const process = require('child_process')
-const myproc = require('process')
+const dgram = require('dgram');
+const socket = dgram.createSocket('udp6');
+const fs = require('fs');
+const zlib = require('zlib');
+const os = require('os');
+const process = require('child_process');
+const myproc = require('process');
 
 const defConfig = {
-  "bat_iface": "bat0",
-  "mcast_group": "ff02::2:1001",
-  "mcast_iface": "bat0",
-  "port": "1001",
-  "site_code": undefined,
-  "latitude": undefined,
-  "longitude": undefined,
-  "altitude": undefined,
-  "contact": undefined
-}
+	"bat_iface": "bat0",
+	"mcast_group": "ff02::2:1001",
+	"mcast_iface": "bat0",
+	"port": "1001",
+	"site_code": undefined,
+	"latitude": undefined,
+	"longitude": undefined,
+	"altitude": undefined,
+	"contact": undefined
+};
 
 function getNodeinfo() {
-  return {
-    "software": {
-      "autoupdater": {
-        "enabled": false
-      },
-      "batman-adv": {
-        "version": getFileContents("/sys/module/batman_adv/version")
-      },
-      "fastd": {
-        "enabled": isProcessRunning("fastd")
-      },
-      "status-page":{
-				"api":1
+	return {
+		"software": {
+			"autoupdater": {
+				"enabled": false
+			},
+			"batman-adv": {
+				"version": getFileContents("/sys/module/batman_adv/version")
+			},
+			"fastd": {
+				"enabled": isProcessRunning("fastd")
+			},
+			"status-page":{
+				"api": 1
 			}
-    },
-    "network": {
-      "addresses": getV6AddrForInterface(getConfig("mcast_iface")),
-      "mesh": getMeshAddresses(),
-      "mac": getPrimaryMac()
-    },
-    "location": {
-      "latitude": getConfig("latitude"),
-      "longitude": getConfig("longitude"),
-      "altitude": getConfig("altitude")
-    },
-    "owner": {
-      "contact": getConfig("contact")
-    },
-    "system": {
-      "site_code": getConfig("site_code")
-    },
-    "hostname": os.hostname(),
-    "hardware": {
-      "model": os.cpus()[0].model,
-      "nproc": os.cpus().length
-    }
-  }
+		},
+		"network": {
+			"addresses": getV6AddrForInterface(getConfig("mcast_iface")),
+			"mesh": getMeshAddresses(),
+			"mac": getPrimaryMac()
+		},
+		"location": {
+			"latitude": getConfig("latitude"),
+			"longitude": getConfig("longitude"),
+			"altitude": getConfig("altitude")
+		},
+		"owner": {
+			"contact": getConfig("contact")
+		},
+		"system": {
+			"site_code": getConfig("site_code")
+		},
+		"hostname": os.hostname(),
+		"hardware": {
+			"model": os.cpus()[0].model,
+			"nproc": os.cpus().length
+		}
+	};
 }
 
 function getStatistics() {
-  return {
-    "traffic": getTrafficStats(),
-    "memory": {
-      "total": os.totalmem(),
-      "free": os.freemem()
-    },
-    "uptime": os.uptime(),
-    "loadavg": os.loadavg()[0],
-    "processes": {
-      "running": parseInt(evalExec("ps ax | awk '{print $3}' | grep R | wc -l")),
-      "total": parseInt(evalExec("ps ax | wc -l")) - 1,
-    },
-    "clients": getClients()
-  }
+	return {
+		"traffic": getTrafficStats(),
+		"memory": {
+			"total": os.totalmem(),
+			"free": os.freemem()
+		},
+		"uptime": os.uptime(),
+		"loadavg": os.loadavg()[0],
+		"processes": {
+			"running": parseInt(evalExec("ps ax | awk '{print $3}' | grep R | wc -l")),
+			"total": parseInt(evalExec("ps ax | wc -l")) - 1,
+		},
+		"clients": getClients()
+	};
 }
 
 function getClients() {
-  var lines = fs.readFileSync("/sys/kernel/debug/batman_adv/" + getConfig("bat_iface") + "/transtable_local").toString().trim()
-  var batadv_mac = getPrimaryMac()
-  var clients = {"total": 0, "wifi": 0}
+	// batman-adv -> translation-table.c -> batadv_tt_local_seq_print_text
+	// R = BATADV_TT_CLIENT_ROAM
+	// P = BATADV_TT_CLIENT_NOPURGE
+	// N = BATADV_TT_CLIENT_NEW
+	// X = BATADV_TT_CLIENT_PENDING
+	// W = BATADV_TT_CLIENT_WIFI
+	// I = BATADV_TT_CLIENT_ISOLA
+	// . = unset
+	// * c0:11:73:b2:8f:dd   -1 [.P..W.]   1.710   (0xe680a836)
 
-  if (lines) {
-    lines = lines.split("\n")
-    lines.shift()
-    lines.shift()
+	//var lines = fs.readFileSync("/sys/kernel/debug/batman_adv/" + getConfig("bat_iface") + "/transtable_local").toString().trim();
+	var lines = evalExec("batctl -m " + getConfig("bat_iface") + " tl -n");
+	var batadv_mac = getPrimaryMac();
+	var clients = {"total": 0, "wifi": 0};
 
-    lines.forEach((line) => {
-      var mac = line.substring(3,20)
-      if (mac != batadv_mac)
-        if (!mac.startsWith('33:33:') && !mac.startsWith('01:00:5e:'))
-          clients["total"] += 1
-            if (line[26] == 'W')
-              clients["wifi"] += 1
-    })
-  }
-  console.log(clients)
-  return clients
+	if (!lines)
+		return clients;
+	lines = lines.split("\n");
+	lines.forEach((line) => {
+		var reg = line.match(/^\s\*\s([0-9a-f:]+)\s\[([RPNXWI\.]+)\]([\s]{0,3})([\.\d]+)/i);
+		if (reg)
+			if (reg[1] != batadv_mac) // Filter batman device
+				if (!reg[1].startsWith('33:33:') && !reg[1].startsWith('01:00:5e:')) // Filter multicast
+					clients["total"] += 1;
+						if (line[26] == 'W')
+							clients["wifi"] += 1;
+	});
+
+	return clients;
 }
 
 
 function getNeighbours() {
-  return {
-    "batadv": JSON.parse(evalExec("sudo ./bat-list-neighbours"))
-  }
+	return {
+		"batadv": JSON.parse(evalExec("sudo ./bat-list-neighbours"))
+	};
 }
 
 function getV6AddrForInterface(iface) {
-  try {
-    return os.networkInterfaces()[iface].filter((a) => a.family == "IPv6").map((a) => a.address)
-  } catch (e) {
-    return undefined
-  }
+	try {
+		return os.networkInterfaces()[iface].filter((a) => a.family == "IPv6").map((a) => a.address);
+	} catch (e) {
+		return undefined;
+	}
 }
 
 function isProcessRunning(name) {
-  try {
-    return evalExec("ps ax | grep "+name+" | grep -v grep").length > 0
-  } catch (e) {
-    return false
-  }
+	try {
+		return evalExec("ps ax | grep " + name + " | grep -v grep").length > 0;
+	} catch (e) {
+		return false;
+	}
 }
 
 function evalExec(line) {
-  try {
-    return process.execSync(line).toString().trim()
-  } catch (e) {
-    return undefined
-  }
+	try {
+		return process.execSync(line).toString().trim();
+	} catch (e) {
+		return undefined;
+	}
 }
 
 function getFileContents(name) {
-  try {
-    return fs.readFileSync(name).toString().trim()
-  } catch (e) {
-    return undefined
-  }
+	try {
+		return fs.readFileSync(name).toString().trim();
+	} catch (e) {
+		return undefined;
+	}
 }
 
 function getTrafficStats() {
-  try {
-    var res = {}
-    var vs = evalExec("/sbin/ethtool -S " + getConfig("bat_iface") + " | head -n 12 | tail -n 11").split("\n")
-    vs.forEach((v) => {
-      var x = v.split(": ")
-      var group = x[0].trim()
-      var type = "packets"
-      var val = parseInt(x[1].trim())
-      if (group.indexOf("_bytes") > -1) {
-        group = group.substring(0,group.length-6)
-        type = "bytes"
-      }
-      if (group.indexOf("_dropped") > -1) {
-        group = group.substring(0,group.length-8)
-        type = "dropped"
-      }
-      if (!(group in res)) res[group] = {}
-      res[group][type] = val
-    })
-    return res
-  } catch (e) {
-    return undefined
-  }
+	try {
+		var res = {};
+		var vs = evalExec("/sbin/ethtool -S " + getConfig("bat_iface") + " | head -n 12 | tail -n 11").split("\n");
+		vs.forEach((v) => {
+			var x = v.split(": ");
+			var group = x[0].trim();
+			var type = "packets";
+			var val = parseInt(x[1].trim());
+			if (group.indexOf("_bytes") > -1) {
+				group = group.substring(0,group.length-6);
+				type = "bytes";
+			}
+			if (group.indexOf("_dropped") > -1) {
+				group = group.substring(0,group.length-8);
+				type = "dropped";
+			}
+			if (!(group in res)) res[group] = {}
+				res[group][type] = val;
+		});
+		return res;
+	} catch (e) {
+		return undefined;
+	}
 }
 
 function getMeshAddresses() {
-  var bat = getConfig("bat_iface")
-  var data = {
-    "interfaces": {
-      "tunnel": evalExec("cat /sys/class/net/"+bat+"/lower_*/address").split("\n"),
-      "other": [getPrimaryMac()]
-    }
-  }
-  var res = {}
-  res[bat] = data
-  return res
+	var bat = getConfig("bat_iface")
+		var data = {
+		"interfaces": {
+			"tunnel": evalExec("cat /sys/class/net/" + bat + "/lower_*/address").split("\n"),
+			"other": [getPrimaryMac()]
+		}
+	};
+	var res = {};
+	res[bat] = data;
+	return res;
 }
 
 function getNodeId() {
-  return getPrimaryMac().replace(/:/g,"")
+	return getPrimaryMac().replace(/:/g,"");
 }
 
 function getPrimaryMac() {
-  return getMac(getConfig("mcast_iface"));
+	return getMac(getConfig("mcast_iface"));
 }
 
 function getMac(iface) {
-  try {
-    return os.networkInterfaces()[iface][0].mac
-  } catch (e) {
-    return "00:00:00:00:00:00"
-  }
+	try {
+		return os.networkInterfaces()[iface][0].mac;
+	} catch (e) {
+		return "00:00:00:00:00:00";
+	}
 }
 
 function getData(what) {
-  var data = {}
-  switch(what) {
-    case "nodeinfo": data = getNodeinfo(); break
-    case "statistics": data = getStatistics(); break
-    case "neighbours": data = getNeighbours(); break
-    default: console.log("Unknown data type: " + what)
-  }
-  data.node_id = getNodeId()
-  var res = {}
-  res[what] = data
-  return res
+	var data = {}
+	switch(what) {
+		case "nodeinfo":
+			data = getNodeinfo();
+			break;
+		case "statistics":
+			data = getStatistics();
+			break;
+		case "neighbours":
+			data = getNeighbours();
+			break;
+		default:
+			console.log("Unknown data type: " + what);
+	}
+	data.node_id = getNodeId();
+	var res = {};
+	res[what] = data;
+	return res;
 }
 
-var config = {}
+var config = {};
 
 try {
-  config = JSON.parse(fs.readFileSync("./config.json"))
+	config = JSON.parse(fs.readFileSync("./config.json"));
 } catch (err) {
-  console.log("config file error: " + err)
+	console.log("config file error: " + err);
 }
 
 function getConfig(opt) {
-  if (opt == "listen"){
-    var v6address = getV6AddrForInterface(getConfig("mcast_iface"))
-    if (v6address == null) throw "no ipv6 address for mcast_iface found!"
-    return v6address.filter((a) => a.startsWith("fe80:"))[0] + "%" + getConfig("mcast_iface")
-  }
-  if (opt in config) return config[opt]
-  else return defConfig[opt]
+	if (opt == "listen"){
+		var v6address = getV6AddrForInterface(getConfig("mcast_iface"));
+		if (v6address == null)
+			throw "no ipv6 address for mcast_iface found!";
+		return v6address.filter((a) => a.startsWith("fe80:"))[0] + "%" + getConfig("mcast_iface");
+	}
+	if (opt in config)
+		return config[opt];
+	else
+		return defConfig[opt];
 }
 
 socket.on('error', (err) => {
-  console.log("socket error: " + err)
-  socket.close()
-})
+	console.log("socket error: " + err);
+	socket.close();
+});
 
 socket.on('message', (msg, rinfo) => {
-  if (!rinfo.address.startsWith("fe80:")) return
-  msg = msg.toString()
-  console.log("message from: "+rinfo.address+": "+msg)
-  if (msg.startsWith("GET ")) {
-    // Multi case
-    var whats = msg.substring(4).split(" ")
-    whats.forEach((what) => {
-      zlib.deflateRaw(new Buffer(JSON.stringify(getData(what.trim()))), (_, data) => {
-        socket.send(data, 0, data.length, rinfo.port, rinfo.address + "%" + getConfig("mcast_iface"), (err) => { if (err) console.log(err) })
-      })
-    })
-  } else {
-    // Single case
-    var res = new Buffer(JSON.stringify(getData(msg.trim())))
-    socket.send(res, 0, res.length, rinfo.port, rinfo.address + "%" + getConfig("mcast_iface"), (err) => { if (err) console.log(err) })
-  }
-})
+	if (!rinfo.address.startsWith("fe80:"))
+		return;
+	msg = msg.toString();
+	console.log("message from: " + rinfo.address + ": " + msg);
+	if (msg.startsWith("GET ")) {
+		// Multi case
+		var whats = msg.substring(4).split(" ");
+		whats.forEach((what) => {
+			zlib.deflateRaw(new Buffer(JSON.stringify(getData(what.trim()))), (_, data) => {
+				socket.send(data, 0, data.length, rinfo.port, rinfo.address + "%" + getConfig("mcast_iface"), (err) => {
+					if (err)
+						console.log(err);
+				});
+			});
+		});
+	} else {
+		// Single case
+		var res = new Buffer(JSON.stringify(getData(msg.trim())));
+		socket.send(res, 0, res.length, rinfo.port, rinfo.address + "%" + getConfig("mcast_iface"), (err) => {
+			if (err)
+				console.log(err);
+		});
+	}
+});
 
 socket.on('listening', () => {
-  var addr = socket.address()
-  console.log("socket listening on " + addr.address + ":" + addr.port)
-})
+	var addr = socket.address();
+	console.log("socket listening on " + addr.address + ":" + addr.port);
+});
 
 socket.bind(getConfig("port"), () => {
-  socket.addMembership(getConfig("mcast_group"), getConfig("listen"))
-  //myproc.setgid('nogroup')
-  //myproc.setuid('nobody')
-})
+	socket.addMembership(getConfig("mcast_group"), getConfig("listen"));
+	//myproc.setgid('nogroup');
+	//myproc.setuid('nobody');
+});
